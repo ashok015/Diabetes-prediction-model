@@ -1,78 +1,91 @@
 import streamlit as st
+import pandas as pd
 import numpy as np
 import joblib
 
-# Load model and scaler
-model = joblib.load("diabetes_prediction_model_final.pkl")
-scaler = joblib.load("diabetes_scaler_final.pkl")
+# Load the trained ML model and scaler
+model = joblib.load("diabetes_final_boosted_model.pkl")
+scaler = joblib.load("diabetes_final_scaler.pkl")
 
-st.set_page_config(page_title="Diabetes Risk Prediction", page_icon="🩺")
-st.title("🧠 Diabetes Risk Prediction")
-st.write("Answer the questions below to check your risk of needing diabetes medication.")
+# Set Streamlit page configuration
+st.set_page_config(page_title="Diabetes Risk Predictor", layout="centered")
+st.title("🩺 Diabetes Risk Prediction")
+st.markdown("Get a quick idea of your diabetes risk and some helpful advice to stay healthy.")
 
-# --- User Inputs ---
-age = st.selectbox("1. What is your age range?", ['[0-10)', '[10-20)', '[20-30)', '[30-40)', '[40-50)', '[50-60)', '[60-70)', '[70-80)', '[80-90)', '[90-100)'])
-gender = st.radio("2. What is your gender?", ['Male', 'Female'])
-time_in_hospital = st.slider("3. Days spent in hospital (last visit)", 1, 20, 5)
-num_medications = st.slider("4. How many medications are you currently on?", 0, 50, 10)
-a1c_result = st.selectbox("5. A1C test result?", ['None', 'Norm', '>7', '>8'])
-max_glu_serum = st.selectbox("6. Max Glucose Serum level?", ['None', 'Norm', '>200', '>300'])
-number_inpatient = st.slider("7. Number of inpatient visits in past year", 0, 10, 0)
-number_outpatient = st.slider("8. Number of outpatient visits", 0, 10, 0)
+# ----- USER INPUTS ----- #
 
-# --- Feature Engineering ---
-input_dict = {
-    'age': age,
-    'gender': gender,
-    'time_in_hospital': time_in_hospital,
-    'num_medications': num_medications,
-    'A1Cresult': a1c_result,
-    'max_glu_serum': max_glu_serum,
-    'number_inpatient': number_inpatient,
-    'number_outpatient': number_outpatient
+st.header("👤 Personal Information")
+gender = st.radio("What is your gender?", ["Male", "Female"])
+age = st.selectbox("Select your age group:", ["10-20", "21-30", "31-40", "41-50", "51-60", "61-70", "71-80", "81-90"])
+race = st.selectbox("What is your background?", ["Caucasian", "AfricanAmerican", "Asian", "Hispanic", "Other"])
+
+if gender == "Female":
+    pregnant = st.checkbox("Are you currently pregnant?")
+else:
+    pregnant = False
+
+st.header("🩺 Health Information")
+A1Cresult = st.selectbox("Do you know your A1C result?", ["None", "Norm", ">7", ">8"])
+max_glu_serum = st.selectbox("Max blood sugar level (if tested)?", ["None", "Norm", ">200", ">300"])
+num_medications = st.selectbox("How many medications do you currently take?", ["0-5", "6-10", "11-15", "16-20", ">20"])
+time_in_hospital = st.selectbox("Recent hospital stay (last 12 months)?", ["No hospital visit", "1-3 days", "4-7 days", "8+ days"])
+
+# ----- DATA PROCESSING ----- #
+
+# Convert user input into model-compatible format
+age_map = {
+    "10-20": "[10-20)", "21-30": "[20-30)", "31-40": "[30-40)", "41-50": "[40-50)",
+    "51-60": "[50-60)", "61-70": "[60-70)", "71-80": "[70-80)", "81-90": "[80-90)"
 }
+med_map = {"0-5": 3, "6-10": 8, "11-15": 13, "16-20": 18, ">20": 22}
+stay_map = {"No hospital visit": 0, "1-3 days": 2, "4-7 days": 5, "8+ days": 9}
 
-# Encode categorical values manually to match model
-def encode_inputs(data):
-    encoded = []
+# Create input dataframe
+input_data = pd.DataFrame({
+    "num_medications": [med_map[num_medications]],
+    "time_in_hospital": [stay_map[time_in_hospital]],
+    "A1Cresult_>7": [1 if A1Cresult == ">7" else 0],
+    "A1Cresult_>8": [1 if A1Cresult == ">8" else 0],
+    "A1Cresult_None": [1 if A1Cresult == "None" else 0],
+    "max_glu_serum_>200": [1 if max_glu_serum == ">200" else 0],
+    "max_glu_serum_>300": [1 if max_glu_serum == ">300" else 0],
+    "max_glu_serum_None": [1 if max_glu_serum == "None" else 0],
+    f"race_{race}": [1],
+    f"gender_{gender}": [1],
+    f"age_{age_map[age]}": [1]
+})
 
-    # Age
-    age_map = {'[0-10)': 0, '[10-20)': 1, '[20-30)': 2, '[30-40)': 3, '[40-50)': 4,
-               '[50-60)': 5, '[60-70)': 6, '[70-80)': 7, '[80-90)': 8, '[90-100)': 9}
-    encoded.append(age_map[data['age']])
+# Make sure all required model columns exist
+model_columns = model.get_booster().feature_names
+for col in model_columns:
+    if col not in input_data.columns:
+        input_data[col] = 0
 
-    # Gender
-    encoded.append(1 if data['gender'] == 'Male' else 0)
+# Reorder columns to match the training data
+input_data = input_data[model_columns]
 
-    # Other features
-    encoded.append(data['time_in_hospital'])
-    encoded.append(data['num_medications'])
-    encoded.append(data['number_inpatient'])
-    encoded.append(data['number_outpatient'])
+# Scale the input
+input_scaled = scaler.transform(input_data)
 
-    # A1Cresult encoding
-    a1c_map = {'None': 0, 'Norm': 1, '>7': 2, '>8': 3}
-    encoded.append(a1c_map[data['A1Cresult']])
+# ----- PREDICTION ----- #
 
-    # Glucose Serum encoding
-    glu_map = {'None': 0, 'Norm': 1, '>200': 2, '>300': 3}
-    encoded.append(glu_map[data['max_glu_serum']])
-
-    return np.array(encoded).reshape(1, -1)
-
-# Predict
-if st.button("🩺 Predict Risk"):
-    input_data = encode_inputs(input_dict)
-    scaled_data = scaler.transform(input_data)
-    prediction = model.predict(scaled_data)[0]
-    proba = model.predict_proba(scaled_data)[0][1] * 100
+if st.button("🔍 Predict My Diabetes Risk"):
+    prediction = model.predict(input_scaled)[0]
 
     if prediction == 1:
-        st.error(f"⚠️ High risk of requiring diabetes medication ({proba:.2f}% probability).")
-        st.markdown("### 💡 Advice")
-        st.markdown("- Maintain a low-sugar diet (less rice, sweets)")
-        st.markdown("- Walk 30 mins daily 🏃")
-        st.markdown("- Regular A1C and glucose checkups")
-        st.markdown("- Reduce processed and oily food")
+        st.error("⚠️ You may be at HIGH risk of developing diabetes.")
+        st.subheader("🧑‍⚕️ Doctor's Advice:")
+        st.markdown("- Eat more vegetables, greens, and fiber-rich food")
+        st.markdown("- Avoid sugar drinks, white rice, and junk food")
+        st.markdown("- Walk or exercise at least 30 minutes daily")
+        st.markdown("- Take a sugar test every 6 months")
     else:
-        st.success(f"✅ You are currently at low risk ({100 - proba:.2f}% confidence). Keep up your lifestyle!")
+        st.success("✅ You are currently at LOW risk of diabetes. Keep it up!")
+        st.subheader("💡 Health Tips:")
+        st.markdown("- Maintain a healthy diet")
+        st.markdown("- Be active and avoid sitting for long hours")
+        st.markdown("- Limit processed foods and sugar")
+        st.markdown("- Stay hydrated and sleep well")
+
+st.markdown("---")
+st.caption("App developed by Ashok using Machine Learning & Streamlit ❤️")
