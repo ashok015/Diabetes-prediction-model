@@ -4,8 +4,9 @@ import numpy as np
 import joblib
 
 # Load the trained ML model and scaler
-model = joblib.load("diabetes_final_boosted_model.pkl")
-scaler = joblib.load("diabetes_final_scaler.pkl")
+model = joblib.load("diabetes_prediction_model_final.pkl")
+scaler = joblib.load("diabetes_scalar_final.pkl")
+
 
 # Set Streamlit page configuration
 st.set_page_config(page_title="Diabetes Risk Predictor", layout="centered")
