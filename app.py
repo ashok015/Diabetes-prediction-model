@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
+import os
+st.write("📂 Files here:", os.listdir())
 
 # Load the trained ML model and scaler
 model = joblib.load("diabetes_prediction_model_final.pkl")
